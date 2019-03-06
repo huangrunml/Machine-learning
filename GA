@@ -1,0 +1,333 @@
+#!/usr/bin/env python
+#coding=utf-8
+import AIS
+import random
+import numpy as np
+import math
+import sklearn.neighbors.kd_tree as kt
+from sklearn import preprocessing
+ais_instance1=AIS.Ais()
+
+
+
+
+cfs_genetic_15=[3,4,5,6,12,16,18,25,26,29,30,31,36,37,38]
+ig_ranking_15=[5,3,6,4,30,29,33,34,35,38,12,39,25,23,26]
+#ig_ranking_20=[5,3,6,4,30,29,33,34,35,38,12,39,25,23,26,37,32,36,31,24]
+
+feature_to_use_number=[5,3,6,4,30,29,33,34,35,38,12,39,25,23,26]
+#feature_to_use.sort()
+num_feature_choose=(4,5,29,28,32,33,34,37,11,38,24,22,25)
+
+
+
+#符号特征预处理
+def AddFeature(num_feature,str_feature):
+    le = preprocessing.LabelEncoder()
+    le.fit(str_feature)
+    b = le.transform(str_feature)
+    print "str",b
+    all_feature = np.c_[num_feature, b]
+    return all_feature
+
+#特征提取
+def extract_features(f):
+    str_feature1 = np.genfromtxt(f, dtype=str, delimiter=",", usecols=2, comments="@")
+    f.seek(0)
+    str_feature2 = np.genfromtxt(f, dtype=str, delimiter=",", usecols=3, comments="@")
+    f.seek(0)
+    type = np.genfromtxt(f, dtype=str, delimiter=",", usecols=-2, comments="@")
+    f.seek(0)
+    print "str1:", str_feature1
+    print "str2:", str_feature2
+    print "type:", type
+    f.seek(0)
+    num_feature = np.genfromtxt(f, dtype=float, delimiter=",", usecols=num_feature_choose, comments="@")
+    all_feature = AddFeature(num_feature, str_feature1)
+    all_feature = AddFeature(all_feature, str_feature2)
+    return all_feature,type
+
+#特征归一化等处理
+def normalized_feature(all_feature):
+    min_max_scaler = preprocessing.MinMaxScaler()
+    normalized_feature = min_max_scaler.fit_transform(all_feature)  # 最大最小归一化
+    #print "1:", normalized_feature
+
+    #normalized_feature = preprocessing.scale(normalized_feature)  # 标准化特征
+    #print "2:", normalized_feature
+
+    # max_abs_scaler = preprocessing.MaxAbsScaler()
+    # normalized_feature = max_abs_scaler.fit_transform(normalized_feature) #绝对值归一化
+
+    #normalized_feature = preprocessing.normalize(normalized_feature, norm="l2")  # 正则化样本数据
+    normalized_feature=np.around(normalized_feature,3)
+    return normalized_feature
+
+#正常异常索引值获取
+def get_index(type):
+    normal_index=np.where(type=="normal")[0].tolist()
+    abnormal_index=np.where(type=="abnormal")[0].tolist()
+    return normal_index,abnormal_index
+
+class Ga:
+
+    def __init__(self):
+        pass
+
+    def pop(self,self_list,pop_num):
+        """
+
+        :param self_list: list of self attributes
+        :return: randomly selected population
+        """
+        try:
+            #pop=np.array(random.sample(self_list,pop_num))
+            pop=random.sample(self_list,pop_num)
+        except ValueError:
+            print('Sample size exceeded population size.')
+        return pop
+
+    def fitness(self,individual,normal,perc_match):
+
+        """
+        [3,4,5],[3,4,6]
+        :param individual: the GA individual
+        :param normal: the list of self samples
+        :param perc_match: an intger 1-100
+        :return: the value 0-1
+        """
+        p=(perc_match/float(100))*len(individual)
+        #print "p",p
+        #print len(individual)
+        perc_num_of_feat=int(round(p,0))
+        match=0
+        for individuals in normal:
+            ans=(individual[0:perc_num_of_feat]==individuals[0:perc_num_of_feat])
+            #print individual[0:perc_num_of_feat],individuals[0:perc_num_of_feat]
+            if ans==True:
+                match=match+1
+        print "match:",match
+        p=match/float(len(normal))
+        #print "p is ",p
+        f=math.exp(p)
+        #print "exp(f) = ",f
+        return f#match/float(len(normal))
+
+    def crossover(self,parent1,parent2,crossover_point,p_crossover):
+        """
+        :param parent1: first parent with best fitness
+        :param parent2: second parent with second best fitness
+        :param p_crossover: the probability of crossover
+        :return: a child after performing single point crossover
+        """
+        if random.random()>=p_crossover:
+            return parent1
+        child=parent1[0:crossover_point]+parent2[crossover_point:]
+        return child #np.array(child)
+
+    def mutate(self,child,p_mutation,round_off=3,set_to_choose_from=0):
+        """
+
+        :param child: the child to be mutated
+        :param location: the index of feature to mutate
+        :param set_to_choose_from: set containing the range of value to mutate with
+        :return: choose a item from the given set range and replace the value at location
+        """
+        rg=range(len(child))
+        location=random.choice(rg)
+        if random.random()<p_mutation:
+            child[location]=round(np.random.random(),round_off)
+            return child
+        else:
+            return child
+
+
+
+#t=Ga()
+#print "GA",t.pop([[1,2],[2,3],[3,3],[4,4],[1,4],[7,6],[1,2],[3,2]],3)
+#print "crossover",t.crossover([0,"SF",2,3,4,5,6,7,7],[10,"RT",13,15,17,19,20,17],3)
+#print "mutation",t.mutate([0,"SF",2,3,4,5,6,7,7],3,4)
+
+def generate_ga_detectors(num_pop,num_gen,normal_set,p_mutation,p_crossover,round_off=3):
+    ga_instance=Ga()
+
+    pop=ga_instance.pop(normal_set,num_pop)
+    z=pop
+    print "performing GA..."
+    print "Initial population"
+    print "pop:",z
+    for i in range(0,num_gen):
+        print "Generation",i
+
+        for j in range(0,num_pop):
+            parent1,parent2=random.sample(pop,2) #np.array(random.sample(pop,2))
+            l1=pop.index(parent1)
+            l2=pop.index(parent2)
+            print "parent1",parent1
+            print  "parent2",parent2
+            child=ga_instance.crossover(parent1,parent2,3,p_crossover)
+            print "cross_child",child
+            child=ga_instance.mutate(child,p_mutation,round_off)
+            print "mutat_child",child
+
+            d1=ais_instance1.minkowski(child,parent1)
+            print "d1=",d1
+            d2=ais_instance1.minkowski(child,parent2)
+            print "d2=",d2
+            f=ga_instance.fitness(child,normal_set,100)
+            print "f=",f
+            f1=ga_instance.fitness(parent1,normal_set,100)
+            print "f1=",f1
+            f2=ga_instance.fitness(parent2,normal_set,100)
+            print "f2=",f2
+            if (d1<d2)and(f>f1):
+                print "replacing parent1 with child"
+                pop[l1]=child
+            elif (d2<=d1)and(f>f2):
+                print "replacing parent2 with child"
+                pop[l2]=child
+            print '\n'
+    return  pop#print pop1
+
+
+def test_detector(pop,nselfd,alled,type,radius=0.0):
+    false_positive=0
+    false_negative=0
+    true_positive=0
+    true_negative=0
+    i=0
+    attack=[]
+    nonattack=[]
+    zhengchang=[]
+    yichang=[]
+    false_zhengchang=[]
+    false_yichang=[]
+    #tree=kt.KDTree(pop,leaf_size=100000,metric="minkowski",p=2)
+    for value in alled:
+        #attack=[]
+        #nonattack=[]
+        distance=[]
+        for detector in pop:#dist,ind=tree.query([value],k=2,return_distance=True)
+            d=ais_instance1.manhattan(detector,value)
+            distance.append(d)
+        #print "min d=",min(distance),"type=",type[i]#print "distance=",dist[0][1]
+        if min(distance)<=radius:#if dist[0][1]<=radius
+            nonattack.append(value)
+            zhengchang.append(i)
+            if type[i]=="normal":
+                true_negative=true_negative+1
+            else:
+                false_negative=false_negative+1
+                false_zhengchang.append(i)
+        else:
+            attack.append(value)
+            yichang.append(i)
+            if type[i]=="normal":
+                false_positive = false_positive+1
+                false_yichang.append(i)
+            else:
+                true_positive = true_positive+1
+        i=i+1
+    try:
+        DR=(float(true_positive)/(true_positive+false_negative))
+    except ZeroDivisionError:
+        DR=0.0
+    try:
+        PR=(float(true_positive)/(true_positive+false_positive))
+    except ZeroDivisionError:
+        PR=0.0
+    try:
+        AR=(float(true_positive+true_negative)/(true_positive+false_positive+true_negative+false_negative))
+    except ZeroDivisionError:
+        AR=0.0
+    print "actual attack number =", len(nselfd)
+    print "number classified as attack =",len(attack)
+    #print "number classified as nonattack =",len(nonattack)
+    print "Recall(Re)=",DR
+    print "Precision(Pr)=",PR
+    print "Accuracy(Ar)=",AR
+    print "FP=",false_positive,"FN=",false_negative,"TP=",true_positive,"TN=",true_negative
+    print "zhengchang[0:3]:",zhengchang[0:3],"yichang[0:3]:",yichang[0:3],
+    print "false_zhengchang[0:3]:",false_zhengchang[0:3],"false_yichang[0:3]:",false_yichang[0:3]
+    return zhengchang,yichang#,nonattack
+    #return min(mnx),max(mnx)
+
+
+
+
+
+
+
+
+
+if __name__=="__main__":
+    with open(r"C:\Users\Administrator\Desktop\xunlian20.arff", "r") as f1:
+        all_feature1,type1=extract_features(f1)
+        normalized_feature1_array=normalized_feature(all_feature1)
+        normalized_feature1=normalized_feature1_array.tolist()
+        #print "所有集:",normalized_feature1
+        normal_index1,abnormal_index1=get_index(type1)
+        normal_set1=normalized_feature1_array[normal_index1].tolist()
+        abnormal_set1=normalized_feature1_array[abnormal_index1].tolist()
+        #print "正常集:",normal_set1
+        #print "异常集:",abnormal_set1
+        f1.seek(0)
+        lines = f1.readlines()
+        c = lines.index("@data\n")
+        #print "c:", c
+        del lines[0:c + 1]
+        print lines[0]
+    with open(r"C:\Users\Administrator\Desktop\test.arff", "r") as f2:
+        all_feature2,type2=extract_features(f2)
+        normalized_feature2_array=normalized_feature(all_feature2)
+        normalized_feature2=normalized_feature2_array.tolist()
+        #print "所有集:",normalized_feature2
+        normal_index2,abnormal_index2=get_index(type2)
+        normal_set2=normalized_feature2_array[normal_index2].tolist()
+        abnormal_set2=normalized_feature2_array[abnormal_index2].tolist()
+        #print "正常集:",normal_set2
+        #print "异常集:",abnormal_set2
+        f2.seek(0)
+        lines1 = f2.readlines()
+        d = lines1.index("@data\n")
+        #print "d:", d
+        del lines1[0:d + 1]
+        print lines1[0]
+    p_mutation=2.0/len(normal_set1[0])
+    print "prob of mutation=",p_mutation
+    p_crossover=1.0
+    print "prob of crossover=",p_crossover
+    pop=generate_ga_detectors(500,50,normal_set1,p_mutation,p_crossover)
+    zhengchang,yichang=test_detector(pop,abnormal_set1,normalized_feature1,type1,0.3)
+    zhengchang1,yichang1=test_detector(pop,abnormal_set2,normalized_feature2,type2,0.1)
+
+    with open(r"C:\Users\Administrator\Desktop\zhengchang.arff", "w") as f3:
+        for i in zhengchang:
+            f3.write(lines[i])
+    with open(r"C:\Users\Administrator\Desktop\yichang.arff", "w") as f4:
+        for j in yichang:
+            f4.write(lines[j])
+
+    with open(r"C:\Users\Administrator\Desktop\zhengchangtest.arff", "w") as f5:
+        for i in zhengchang1:
+            f5.write(lines1[i])
+    with open(r"C:\Users\Administrator\Desktop\yichangtest.arff", "w") as f6:
+        for j in yichang1:
+            f6.write(lines1[j])
+
+
+
+#    ap=[]
+
+#    for i in range(0,10):
+#        for x in range(0,10):
+#            #print ais_instance1.euclidean(nselfd[0],selfd[i])
+#            ap.append(ais_instance1.euclidean(nselfd[i],selfd[x]))
+        #print selfd[i]
+        #print nselfd[i]
+        #print "\n\n"
+#        print ap
+#    print min(ap),max(ap)
+
+
+
